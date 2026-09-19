@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types none">
+  <title>Log-Sani — Local Log Sanitizer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img class="brand-mark" src="assets/log-sani-eye.webp" alt="" aria-hidden="true">
+      <div>
+        <div class="eyebrow">Private local utility</div>
+        <h1>Log-Sani</h1>
+        <p>Hide sensitive data before sharing logs</p>
+      </div>
+    </div>
+    <div class="privacy">Local only · no network or storage</div>
+  </header>
+
+  <main>
+    <section class="category-bar" aria-label="Automatic detection">
+      <div class="category auto"><span class="category-text"><strong>Internal IPs</strong><small>Private, loopback and link-local</small></span><span class="category-mode">Automatic</span><span id="countInternal" class="count">0</span></div>
+      <div class="category auto"><span class="category-text"><strong>Identities</strong><small>Accounts, emails, phones, addresses and SIDs</small></span><span class="category-mode">Automatic</span><span id="countIdentity" class="count">0</span></div>
+      <div class="category auto"><span class="category-text"><strong>Client domains</strong><small>Configured domains and account prefixes</small></span><span class="category-mode">Automatic</span><span id="countDomain" class="count">0</span></div>
+      <div class="category auto"><span class="category-text"><strong>Secrets</strong><small>Passwords, API keys and access tokens</small></span><span class="category-mode">Automatic</span><span id="countSecret" class="count">0</span></div>
+      <div class="category review-first"><span class="category-text"><strong>Possible IOCs</strong><small>Public IPs, unknown domains and hostnames</small></span><span class="category-mode">Review</span><span id="countPublic" class="count">0</span></div>
+    </section>
+
+    <section class="panes">
+      <div class="pane">
+        <div class="pane-head"><h2>1 · Paste original text</h2><span id="inputSize">0 characters</span></div>
+        <textarea id="input" class="editor" spellcheck="false" autocomplete="off" placeholder="Paste a Defender timeline, logs, ticket notes, or other text…" aria-label="Input text"></textarea>
+      </div>
+      <div class="pane">
+        <div class="pane-head"><h2>Sanitized result</h2><span id="outputSize">0 characters</span></div>
+        <pre id="output" class="output" tabindex="0" aria-label="Sanitized output"></pre>
+      </div>
+    </section>
+
+    <section class="toolbar" aria-label="Main actions">
+      <button type="button" id="sanitizeBtn" class="primary">Sanitize text</button>
+      <button type="button" id="maskSelectionBtn" title="Highlight text in the left panel, then select this button">Mask selected text</button>
+      <button type="button" id="copyBtn">Copy sanitized text</button>
+      <button type="button" id="clearBtn" class="danger">Clear everything</button>
+    </section>
+
+    <div class="status-row">
+      <span id="status" role="status" aria-live="polite">Ready. Nothing leaves this page.</span>
+      <progress id="progress" class="hidden" max="100" value="0" aria-label="Processing progress"></progress>
+    </div>
+
+    <section id="suggestionsPanel" class="review suggestions hidden" aria-labelledby="suggestionsTitle">
+      <div class="review-head">
+        <h2 id="suggestionsTitle">Review suggestions</h2>
+        <div class="review-actions"><span id="suggestionsSummary"></span><button type="button" id="selectAllSuggestionsBtn">Select all</button><button type="button" id="maskSuggestionsBtn" class="primary">Mask selected</button><button type="button" id="ignoreSuggestionsBtn">Ignore selected</button></div>
+      </div>
+      <div class="review-scroll">
+        <table>
+          <thead><tr><th class="suggestion-check">Select</th><th>Possible sensitive value</th><th>Type</th><th>Times</th></tr></thead>
+          <tbody id="suggestionsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="reviewPanel" class="review hidden" aria-labelledby="reviewTitle">
+      <div class="review-head">
+        <h2 id="reviewTitle">Masked values</h2>
+        <div class="review-actions"><span id="reviewSummary"></span><button type="button" id="copyReviewBtn">Copy all values</button></div>
+      </div>
+      <div class="review-scroll">
+        <table>
+          <thead><tr><th>Type</th><th>Original value</th><th>Replacement</th><th>Times</th><th>Actions</th></tr></thead>
+          <tbody id="reviewBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <details>
+      <summary>Advanced: open/save files and restore original text</summary>
+      <div class="rules">
+        <div class="advanced-grid">
+          <div class="advanced-item"><button type="button" id="loadFileBtn">Open a local log file</button><p>Reads a TXT, LOG, JSON, CSV or Markdown file from your computer. It is not uploaded.</p></div>
+          <div class="advanced-item"><button type="button" id="downloadBtn">Save sanitized text</button><p>Downloads the current safe output as a text file.</p></div>
+          <div class="advanced-item"><button type="button" id="restoreBtn">Restore original text</button><p>Paste tokenized text on the left, load its restore key if needed, then select this.</p></div>
+          <div class="advanced-item"><button type="button" id="downloadMappingBtn">Save restore key</button><p>Saves the private token-to-original lookup. Protect this file because it contains the real values.</p></div>
+          <div class="advanced-item"><button type="button" id="loadMappingBtn">Open restore key</button><p>Loads a previously saved restore key into this tab so tokenized text can be restored.</p></div>
+        </div>
+        <input id="fileInput" class="hidden" type="file" accept=".txt,.log,.json,.csv,.md,text/plain,application/json">
+        <input id="mappingInput" class="hidden" type="file" accept=".json,application/json">
+      </div>
+    </details>
+
+    <details>
+      <summary>Optional: edit detection rules</summary>
+      <div class="rules">
+        <p class="notice">Normal sanitization works without editing this section. Add client domains only when you want those domain names hidden too.</p>
+        <div class="rules-grid">
+          <div class="field">
+            <label class="title" for="clientDomains">Client domain list</label>
+            <textarea id="clientDomains" class="rule-input" spellcheck="false" placeholder="client.example&#10;corp.client.example"></textarea>
+            <span class="hint">One DNS domain per line. Subdomains are included.</span>
+          </div>
+          <div class="field">
+            <label class="title" for="netbiosDomains">Client NetBIOS domain list</label>
+            <textarea id="netbiosDomains" class="rule-input" spellcheck="false" placeholder="EUR&#10;CLIENT"></textarea>
+            <span class="hint">Used in DOMAIN\username identities. Matching is case-insensitive.</span>
+          </div>
+          <div class="field">
+            <label class="title" for="iocAllowlist">IOC allowlist</label>
+            <textarea id="iocAllowlist" class="rule-input" spellcheck="false" placeholder="203.0.113.50&#10;198.51.100.0/24&#10;evil.example"></textarea>
+            <span class="hint">Exact IP/domain, wildcard domain, or IP CIDR. Allowed IOCs remain visible.</span>
+          </div>
+        </div>
+        <details class="developer">
+          <summary>Developer options: custom regex, settings files and safety tests</summary>
+          <div class="rules">
+            <p class="notice">Ignore this section unless you specifically need your own regex. No custom rule is enabled by default.</p>
+            <div class="field custom">
+              <label class="title" for="customRules">Custom rules (JSON)</label>
+              <textarea id="customRules" class="rule-input" spellcheck="false">[]</textarea>
+              <span class="hint">Advanced feature for adding your own match pattern and replacement token.</span>
+            </div>
+            <div class="rules-actions">
+              <button type="button" id="exportConfigBtn">Save these settings</button>
+              <button type="button" id="importConfigBtn">Open saved settings</button>
+              <button type="button" id="testsBtn">Run safety tests</button>
+              <input id="configInput" class="hidden" type="file" accept=".json,application/json">
+            </div>
+            <div id="testsResult" class="tests hidden" role="status" aria-live="polite"></div>
+          </div>
+        </details>
+      </div>
+    </details>
+
+    <details>
+      <summary>How to use</summary>
+      <div class="rules">
+        <ol class="howto-list">
+          <li>Paste the original log into the left panel.</li>
+          <li>Select <strong>Sanitize text</strong>. Clearly sensitive values are hidden automatically.</li>
+          <li>To hide any additional word or phrase, highlight it in the left panel and select <strong>Mask selected text</strong>.</li>
+          <li>Review any uncertain public IPs, domains, hostnames or usernames and mask only the ones you choose. Your choices are remembered in this tab until you clear everything or close it.</li>
+          <li>Review the masked values. Select <strong>Unmask</strong> beside any one value you want restored everywhere without changing the other masks.</li>
+          <li>Copy the sanitized result when it is ready.</li>
+        </ol>
+      </div>
+    </details>
+  </main>
+
+  <script src="sanitizer-engine.js" defer></script>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
